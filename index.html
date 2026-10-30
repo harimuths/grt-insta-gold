@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GRT Insta Gold - Best Payment Calculator</title>
+<style>
+  :root { --bg:#f6f7f9; --card:#fff; --text:#1c1f24; --muted:#5b6370; --line:#dfe3e8; --accent:#1a7f4b; --accent-bg:#e6f4ec; --input:#fff7cc; --warn:#b3261e; --warn-bg:#fdecea; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#14171a; --card:#1e2227; --text:#e8eaed; --muted:#9aa3ad; --line:#333a42; --accent:#4cc38a; --accent-bg:#173626; --input:#3a3410; --warn:#ff8a80; --warn-bg:#3b1d1b; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family:Arial, Helvetica, sans-serif; line-height:1.45; }
+  main { max-width:760px; margin:0 auto; padding:24px 16px 48px; }
+  h1 { font-size:1.4rem; margin:0 0 4px; }
+  .sub { color:var(--muted); margin:0 0 20px; font-size:.9rem; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:16px; }
+  .inputs { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+  .inputs.one { grid-template-columns:1fr; }
+  @media (max-width:520px) { .inputs { grid-template-columns:1fr; } }
+  label { display:block; font-size:.85rem; font-weight:bold; margin-bottom:4px; }
+  input, select { width:100%; font-size:1.1rem; font-weight:bold; padding:10px; border:1px solid var(--line); border-radius:8px; background:var(--input); color:var(--text); font-family:inherit; }
+  .sec { font-size:1.05rem; margin:28px 0 4px; }
+  .sec-sub { color:var(--muted); font-size:.85rem; margin:0 0 12px; }
+  .tiers { display:grid; grid-template-columns:repeat(3,1fr); gap:12px; }
+  .two { display:grid; grid-template-columns:repeat(2,1fr); gap:12px; }
+  @media (max-width:620px) { .tiers, .two { grid-template-columns:1fr; } }
+  .tier { border:1px solid var(--line); border-radius:10px; padding:12px; background:var(--card); }
+  .tier h2 { font-size:.95rem; margin:0; }
+  .tier .bonus { color:var(--muted); font-size:.8rem; margin-bottom:8px; }
+  .pay { background:var(--accent-bg); color:var(--accent); border-radius:8px; text-align:center; padding:10px 4px; margin-bottom:10px; }
+  .pay small { display:block; font-size:.75rem; }
+  .pay b { font-size:1.6rem; }
+  .pay.plain { background:var(--bg); color:var(--text); }
+  .pay.plain b { font-size:1.15rem; }
+  table { width:100%; border-collapse:collapse; font-size:.85rem; }
+  td { padding:3px 0; }
+  td:last-child { text-align:right; font-weight:bold; }
+  .plan-title { font-size:.8rem; color:var(--muted); margin:10px 0 2px; }
+  h3 { font-size:.95rem; margin:0 0 8px; }
+  ul { margin:0; padding-left:18px; color:var(--muted); font-size:.82rem; }
+  li { margin-bottom:6px; }
+  .err { color:var(--warn); font-weight:bold; }
+  .verdict { border-radius:10px; padding:14px; margin-top:12px; font-size:.95rem; background:var(--accent-bg); color:var(--text); border:1px solid var(--accent); }
+  .verdict.bad { background:var(--warn-bg); border-color:var(--warn); }
+  .verdict b { font-size:1.05rem; }
+</style>
+</head>
+<body>
+<main>
+  <h1>GRT Insta Gold - Best Payment Calculator</h1>
+  <p class="sub">Enter today's gold rate. The page shows the payment amount that gives the maximum gain, and what a planned instalment would gain or lose if split.</p>
+
+  <div class="card inputs one">
+    <div>
+      <label for="rate">Gold rate today (Rs per gram)</label>
+      <input id="rate" type="number" inputmode="decimal" min="1" step="1" value="13500">
+    </div>
+  </div>
+
+  <h2 class="sec">1. Best payment amount</h2>
+  <p class="sec-sub">The single payment that gives the highest gain, for each payment window.</p>
+  <div id="out" class="tiers"></div>
+
+  <h2 class="sec">2. Planned instalment</h2>
+  <p class="sec-sub">Enter what you plan to pay today to see what you gain or lose versus splitting it into smaller payments.</p>
+  <section>
+    <div class="card inputs">
+      <div>
+        <label for="inst">Planned instalment today (Rs)</label>
+        <input id="inst" type="number" inputmode="decimal" min="100" max="50000" step="1" value="500">
+      </div>
+      <div>
+        <label for="win">Payment window</label>
+        <select id="win">
+          <option value="0.07">Day 1-120 (7% bonus)</option>
+          <option value="0.05">Day 121-240 (5% bonus)</option>
+          <option value="0.03">Day 241-330 (3% bonus)</option>
+        </select>
+      </div>
+    </div>
+    <div id="planout"></div>
+  </section>
+
+</main>
+
+<script>
+var MIN_PAY = 100, MAX_PAY = 2000, MAX_SPLIT_PAY = 1000, MAX_INST = 50000;
+var TIERS = [
+  { name: "Day 1-120", bonus: 0.07 },
+  { name: "Day 121-240", bonus: 0.05 },
+  { name: "Day 241-330", bonus: 0.03 }
+];
+
+// Round half up (the 1e-9 guards against floating-point error such as 0.4999999999)
+function rnd(x) { return Math.floor(x + 0.5 + 1e-9); }
+
+// Gold credited for ONE payment of p rupees
+function credit(p, rate, bonus) {
+  var exact = p / rate * 1000;       // mg actually paid for
+  var base = rnd(exact);             // mg credited
+  var bon = rnd(base * bonus);       // bonus mg credited
+  return { exact: exact, base: base, bonus: bon, total: base + bon };
+}
+
+function best(rate, bonus) {
+  var top = null;
+  for (var p = MIN_PAY; p <= MAX_PAY; p++) {
+    var c = credit(p, rate, bonus);
+    var gain = c.total / c.exact - 1;
+    if (top === null || gain > top.gain + 1e-12) {
+      top = { pay: p, exact: c.exact, base: c.base, bonus: c.bonus, total: c.total, gain: gain };
+    }
+  }
+  top.eff = top.pay / top.total * 1000;
+  return top;
+}
+
+// Best way to split X rupees into whole-rupee payments >= 100 that sum exactly to X.
+// Maximises total mg credited; on a tie prefers fewer payments.
+function bestSplit(X, rate, bonus) {
+  var maxP = Math.min(MAX_SPLIT_PAY, X);
+  var mg = new Int32Array(maxP + 1);
+  for (var p = MIN_PAY; p <= maxP; p++) mg[p] = credit(p, rate, bonus).total;
+  var f = new Int32Array(X + 1).fill(-1), cnt = new Int32Array(X + 1), ch = new Int32Array(X + 1);
+  f[0] = 0;
+  for (var x = MIN_PAY; x <= X; x++) {
+    var lim = Math.min(maxP, x);
+    for (var q = MIN_PAY; q <= lim; q++) {
+      var prev = x - q;
+      if (f[prev] < 0) continue;
+      var v = f[prev] + mg[q], c = cnt[prev] + 1;
+      if (v > f[x] || (v === f[x] && c < cnt[x])) { f[x] = v; cnt[x] = c; ch[x] = q; }
+    }
+  }
+  var parts = {}, r = X;
+  while (r > 0) { parts[ch[r]] = (parts[ch[r]] || 0) + 1; r -= ch[r]; }
+  var list = Object.keys(parts).map(Number).sort(function (a, b) { return b - a; })
+    .map(function (k) { return { amt: k, n: parts[k] }; });
+  return { total: f[X], count: cnt[X], parts: list };
+}
+
+function inr(n) { return Math.round(n).toLocaleString("en-IN"); }
+
+function renderBest() {
+  var rate = parseFloat(document.getElementById("rate").value);
+  var out = document.getElementById("out");
+  if (!(rate > 0)) { out.innerHTML = '<div class="card err" style="grid-column:1/-1">Enter a valid gold rate.</div>'; return; }
+  out.innerHTML = TIERS.map(function (t) {
+    var b = best(rate, t.bonus);
+    return '<div class="tier">' +
+      '<h2>' + t.name + '</h2><div class="bonus">' + Math.round(t.bonus * 100) + '% bonus</div>' +
+      '<div class="pay"><small>Pay this amount</small><b>Rs ' + inr(b.pay) + '</b></div>' +
+      '<table>' +
+      '<tr><td>Base gold</td><td>' + b.base + ' mg</td></tr>' +
+      '<tr><td>Bonus gold</td><td>' + b.bonus + ' mg</td></tr>' +
+      '<tr><td>Total credited</td><td>' + b.total + ' mg</td></tr>' +
+      '<tr><td>Actually paid for</td><td>' + b.exact.toFixed(3) + ' mg</td></tr>' +
+      '<tr><td>Gain vs market</td><td>' + (b.gain * 100).toFixed(2) + '%</td></tr>' +
+      '<tr><td>Effective Rs/gram</td><td>' + inr(b.eff) + '</td></tr>' +
+      '</table>' +
+      '</div>';
+  }).join("");
+}
+
+function card(title, headline, sub, c, X) {
+  return '<div class="tier"><h2>' + title + '</h2><div class="bonus">' + sub + '</div>' +
+    '<div class="pay plain"><small>You pay</small><b>' + headline + '</b></div><table>' +
+    '<tr><td>Total credited</td><td>' + c.total + ' mg</td></tr>' +
+    '<tr><td>Actually paid for</td><td>' + (X / c.rate * 1000).toFixed(3) + ' mg</td></tr>' +
+    '<tr><td>Gain vs market</td><td>' + ((c.total / (X / c.rate * 1000) - 1) * 100).toFixed(2) + '%</td></tr>' +
+    '<tr><td>Effective Rs/gram</td><td>' + inr(X / c.total * 1000) + '</td></tr></table></div>';
+}
+
+function renderPlan() {
+  var rate = parseFloat(document.getElementById("rate").value);
+  var X = Math.floor(parseFloat(document.getElementById("inst").value));
+  var bonus = parseFloat(document.getElementById("win").value);
+  var out = document.getElementById("planout");
+  if (!(rate > 0)) { out.innerHTML = '<div class="card err">Enter a valid gold rate.</div>'; return; }
+  if (!(X >= MIN_PAY) || X > MAX_INST) {
+    out.innerHTML = '<div class="card err">Enter an instalment between Rs ' + MIN_PAY + ' and Rs ' + inr(MAX_INST) + '.</div>';
+    return;
+  }
+  var one = credit(X, rate, bonus); one.rate = rate;
+  var sp = bestSplit(X, rate, bonus);
+  var split = { total: sp.total, rate: rate };
+  var desc = sp.parts.map(function (p) { return p.n + ' x Rs ' + inr(p.amt); }).join(' + ');
+  var diff = split.total - one.total;
+  var rupees = diff * rate / 1000;
+  var verdict;
+  if (diff > 0) {
+    verdict = '<div class="verdict">Splitting into <b>' + sp.count + ' payment' + (sp.count > 1 ? 's' : '') + '</b> gives you <b>' + diff + ' mg more gold</b> (about <b>Rs ' + inr(rupees) +
+      '</b> at today\'s rate) than paying Rs ' + inr(X) + ' in one go. Paying in one go <b>loses</b> that amount.</div>';
+  } else if (diff === 0) {
+    verdict = '<div class="verdict">No difference at this amount: one payment of Rs ' + inr(X) + ' credits the same gold as the best split. Pay it in one go.</div>';
+  } else {
+    verdict = '<div class="verdict">One payment of Rs ' + inr(X) + ' credits <b>' + (-diff) + ' mg more</b> than the best split of payments up to Rs ' + inr(MAX_SPLIT_PAY) + '. Pay it in one go.</div>';
+  }
+  var best1 = diff < 0 ? one : split;
+  out.innerHTML = '<div class="two">' +
+    card('One payment', 'Rs ' + inr(X), 'Pay the whole instalment at once', one, X) +
+    card('Best split', desc, sp.count + ' payment' + (sp.count > 1 ? 's' : '') + ', adds up to Rs ' + inr(X), split, X) +
+    '</div>' + verdict;
+}
+
+function renderAll() { renderBest(); renderPlan(); }
+
+document.getElementById("rate").addEventListener("input", renderAll);
+document.getElementById("inst").addEventListener("input", renderPlan);
+document.getElementById("win").addEventListener("change", renderPlan);
+renderAll();
+</script>
+</body>
+</html>
